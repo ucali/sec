@@ -1,0 +1,6 @@
+[submodule "tests/Catch"]
+	path = tests/Catch
+	url = https://github.com/philsquared/Catch
+[submodule "cryptopp"]
+	path = cryptopp
+	url = https://github.com/weidai11/cryptopp
