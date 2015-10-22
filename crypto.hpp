@@ -197,10 +197,10 @@ public:
         decryption_traits<T, V>::ModDecriptor mod(dec, _iv.data());
 
         CryptoPP::FileSource(i, true,
-         new CryptoPP::StreamTransformationFilter(mod,
-                                                  new CryptoPP::FileSink(o)
-                                                  )
-         );
+            new CryptoPP::StreamTransformationFilter(mod,
+                new CryptoPP::FileSink(o)
+            )
+        );
     }
 
     void Decrypt(const std::string& cipher, std::string& plain) {
@@ -223,7 +223,7 @@ template <typename T>
 class Hash {
 public:
     void Digest(const std::string& msg, std::string& out) {
-            engine.CalculateDigest(
+        engine.CalculateDigest(
             _hash.data(),
             reinterpret_cast<const byte*>(msg.c_str()),
             msg.length()
