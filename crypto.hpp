@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <array>
+#include <type_traits>
 
 #include <Cryptopp/seckey.h>
 #include <Cryptopp/modes.h>
@@ -16,7 +17,6 @@
 #include <Cryptopp/osrng.h>
 #include <Cryptopp/files.h>
 
-//TODO: use arraysink, remove strings
 namespace Crypto {
 
 typedef CryptoPP::HexEncoder HexEncoder;
@@ -41,9 +41,12 @@ void Decode(const std::string& in, std::string& out) {
     decoder.MessageEnd();
 }
 
-void RandomIV(byte* iv, const int size) {
+template <typename T, size_t s>
+inline static std::array<byte, s> RandomIV() {
+    std::array<byte, s> iv;
     CryptoPP::AutoSeededRandomPool rnd;
-    rnd.GenerateBlock(iv, size);
+    rnd.GenerateBlock(iv.data(), s);
+    return std::move(iv);
 }
 
 class RSA {
@@ -88,32 +91,68 @@ private:
     CryptoPP::RSA::PublicKey publicKey;
 };
 
-typedef CryptoPP::Salsa20 Salsa;
-typedef CryptoPP::SHA256 Sha256;
-typedef CryptoPP::HMAC<Sha256> HMacSha256;
+typedef CryptoPP::SHA1 SHA1;
+typedef CryptoPP::SHA256 SHA256;
+typedef CryptoPP::SHA512 SHA512;
+typedef CryptoPP::HMAC<SHA1> HMAC1;
+typedef CryptoPP::HMAC<SHA256> HMAC256;
+typedef CryptoPP::HMAC<SHA512> HMAC512;
+
 typedef CryptoPP::AES AES;
 typedef CryptoPP::CBC_Mode_ExternalCipher CBC;
 typedef CryptoPP::CFB_Mode_ExternalCipher CFB;
+typedef CryptoPP::Salsa20 Salsa;
 
 template <typename T>
-class StreamCipher {
+struct key_traits {
+    enum Len {
+        DEFAULT = T::DEFAULT_KEYLENGTH,
+        MAX = T::MAX_KEYLENGTH,
+        MIN = T::MIN_KEYLENGTH
+    };
+};
+
+template <typename T, size_t L>
+class Cipher {
 public:
-    StreamCipher(const std::string& key, size_t s = T::DEFAULT_KEYLENGTH) : _keyLength(s) {
-        assert(key.size() == _keyLength);
-        _key.Assign(reinterpret_cast<const byte*>(key.c_str()), _keyLength);
-        RandomIV(_iv.data(), T::IV_LENGTH);
+    Cipher(const std::string& key) : _iv(RandomIV<T, L>()) {
+        _key.Assign(reinterpret_cast<const byte*>(key.c_str()), key.size());
+    }
+    Cipher(const std::string& key, const std::string& iv) {
+        _key.Assign(reinterpret_cast<const byte*>(key.c_str()), key.size());
+        memcpy(_iv.data(), iv.c_str(), L);
     }
 
-    StreamCipher(const std::string& key, const std::string& iv, size_t s = T::DEFAULT_KEYLENGTH) : _keyLength(s) {
-        assert(key.size() == _keyLength);
-        _key.Assign(key.c_str(), _keyLength);
-        memcpy(_iv.data(), iv.c_str(), T::IV_LENGTH);
-    }
+    std::string IV() const { return std::move(std::string(reinterpret_cast<const char*>(_iv.data()), _iv.size())); }
+
+protected:
+    const byte* iv() const { return _iv.data(); }
+    const byte* key() const { return _key.data(); }
+    const size_t keySize() const { return _key.size(); }
+
+private:
+    std::array<byte, L> _iv;
+    CryptoPP::SecByteBlock _key;
+};
+
+template <typename K>
+struct Message {
+    K Data;
+    std::string IV;
+};
+
+template <typename T>
+class StreamCipher : public Cipher<T, T::IV_LENGTH> {
+public:
+    StreamCipher(const std::string& key) : Cipher<T, T::IV_LENGTH>(key) {}
+
+    StreamCipher(const std::string& key, const std::string& iv) : Cipher<T, T::IV_LENGTH>(key, iv) {}
 
     void Encrypt(const std::string& plain, std::string& cipher) {
-        typename T::Encryption enc(_key.data(), _keyLength, _iv.data());
         size_t size = plain.size();
         std::unique_ptr<char> cPtr(new char[size]);
+
+        typename T::Encryption enc(key(), keySize(), iv());
         enc.ProcessData(
             reinterpret_cast<byte*>(cPtr.get()),
             reinterpret_cast<const byte*>(plain.c_str()),
@@ -122,8 +161,8 @@ public:
         cipher = std::move(std::string(cPtr.get(), size));
     }
 
-    void Decript(const std::string& cipher, std::string& plain) {
-        typename T::Decryption dec(_key.data(), _keyLength, _iv.data());
+    void Decrypt(const std::string& cipher, std::string& plain) {
+        typename T::Decryption dec(key(), keySize(), iv());
         size_t size = cipher.size();
         std::unique_ptr<char> cPtr(new char[size]);
         dec.ProcessData(
@@ -135,10 +174,7 @@ public:
     }
 
 private:
-    std::array<byte, T::IV_LENGTH> _iv;
     CryptoPP::SecByteBlock _key;
-
-    const size_t _keyLength;
 };
 
 template <typename T, typename V>
@@ -158,23 +194,14 @@ struct decryption_traits<AES, CBC> {
 
 
 template <typename T, typename V>
-class BlockCipher {
+class BlockCipher : public Cipher<T, T::BLOCKSIZE> {
 public:
-    BlockCipher(const std::string& key, size_t s = T::MAX_KEYLENGTH) : _keyLength(s) {
-        assert(key.size() == _keyLength);
-        _key.Assign(reinterpret_cast<const byte*>(key.c_str()), _keyLength);
-        RandomIV(_iv.data(), T::BLOCKSIZE);
-    }
-
-    BlockCipher(const std::string& key, const std::string& iv, size_t s = T::MAX_KEYLENGTH) : _keyLength(s)  {
-        assert(key.size() == _keyLength);
-        _key.Assign(reinterpret_cast<const byte*>(key.c_str()), _keyLength);
-        memcpy(_iv.data(), iv.c_str(), T::BLOCKSIZE);
-    }
+    BlockCipher(const std::string& key) : Cipher<T, T::BLOCKSIZE>(key) {}
+    BlockCipher(const std::string& key, const std::string& iv) : Cipher<T, T::BLOCKSIZE>(key, iv) {}
 
     void Encrypt(std::istream& i, std::ostream& o) {
-        typename T::Encryption enc(_key.data(), _keyLength);
-        typename V::Encryption mod(enc, _iv.data());
+        typename T::Encryption enc(key(), keySize());
+        typename V::Encryption mod(enc, iv());
 
         CryptoPP::FileSource(i, true,
             new CryptoPP::StreamTransformationFilter(mod,
@@ -184,8 +211,8 @@ public:
     }
 
     void Encrypt(const std::string& plain, std::string& cipher) {
-        typename T::Encryption enc(_key.data(), _keyLength);
-        typename V::Encryption mod(enc, _iv.data());
+        typename T::Encryption enc(key(), keySize());
+        typename V::Encryption mod(enc, iv());
 
         CryptoPP::StreamTransformationFilter str(mod, new CryptoPP::StringSink(cipher));
         str.Put(reinterpret_cast<const byte*>(plain.c_str()), plain.length());
@@ -193,8 +220,8 @@ public:
     }
 
     void Decrypt(std::istream& i, std::ostream& o) {
-        decryption_traits<T, V>::CipherDecriptor dec(_key.data(), _keyLength);
-        decryption_traits<T, V>::ModDecriptor mod(dec, _iv.data());
+        decryption_traits<T, V>::CipherDecriptor dec(key(), keySize());
+        decryption_traits<T, V>::ModDecriptor mod(dec, iv());
 
         CryptoPP::FileSource(i, true,
             new CryptoPP::StreamTransformationFilter(mod,
@@ -204,8 +231,8 @@ public:
     }
 
     void Decrypt(const std::string& cipher, std::string& plain) {
-        decryption_traits<T, V>::CipherDecriptor dec(_key.data(), _keyLength);
-        decryption_traits<T, V>::ModDecriptor mod(dec, _iv.data());
+        decryption_traits<T, V>::CipherDecriptor dec(key(), keySize());
+        decryption_traits<T, V>::ModDecriptor mod(dec, iv());
 
         CryptoPP::StreamTransformationFilter str(mod, new CryptoPP::StringSink(plain));
         str.Put(reinterpret_cast<const byte*>(cipher.c_str()), cipher.size());
@@ -213,10 +240,7 @@ public:
     }
 
 private:
-    std::array<byte, T::BLOCKSIZE> _iv;
     CryptoPP::SecByteBlock _key;
-
-    const size_t _keyLength;
 };
 
 template <typename T>
