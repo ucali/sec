@@ -26,7 +26,7 @@ typedef CryptoPP::Base64Encoder B64Encoder;
 typedef CryptoPP::Base64Decoder B64Decoder;
 
 template <typename S>
-void Encode(const std::string& in, std::string& out) {
+inline void Encode(const std::string& in, std::string& out) {
     S encoder;
     encoder.Attach(new CryptoPP::StringSink(out));
     encoder.Put(reinterpret_cast<const byte*>(in.c_str()), in.size());
@@ -34,7 +34,7 @@ void Encode(const std::string& in, std::string& out) {
 }
 
 template <typename S> 
-void Decode(const std::string& in, std::string& out) {
+inline void Decode(const std::string& in, std::string& out) {
     S decoder;
     decoder.Attach(new CryptoPP::StringSink(out));
     decoder.Put(reinterpret_cast<const byte*>(in.c_str()), in.size());
@@ -42,7 +42,7 @@ void Decode(const std::string& in, std::string& out) {
 }
 
 template <typename T, size_t s>
-inline static std::array<byte, s> RandomIV() {
+inline std::array<byte, s> RandomIV() {
     std::array<byte, s> iv;
     CryptoPP::AutoSeededRandomPool rnd;
     rnd.GenerateBlock(iv.data(), s);
