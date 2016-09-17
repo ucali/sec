@@ -103,15 +103,6 @@ typedef CryptoPP::CBC_Mode_ExternalCipher CBC;
 typedef CryptoPP::CFB_Mode_ExternalCipher CFB;
 typedef CryptoPP::Salsa20 Salsa;
 
-template <typename T>
-struct key_traits {
-    enum Len {
-        DEFAULT = T::DEFAULT_KEYLENGTH,
-        MAX = T::MAX_KEYLENGTH,
-        MIN = T::MIN_KEYLENGTH
-    };
-};
-
 template <typename T, size_t L>
 class Cipher {
 public:
@@ -183,7 +174,7 @@ struct decryption_traits {};
 template <>
 struct decryption_traits<AES, CFB> {
     typedef AES::Encryption CipherDecriptor;
-    typedef CFB::Encryption ModDecriptor;
+    typedef CFB::Decryption ModDecriptor;
 };
 
 template <>

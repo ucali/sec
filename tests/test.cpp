@@ -51,7 +51,7 @@ TEST_CASE("SALSA") {
 TEST_CASE("AES_CBC_IV") {
     std::string out3, out4;
     Crypto::BlockCipher<Crypto::AES, Crypto::CBC> aes("pipopipopipopipopipopipopipopipo", "0000000000000000");
-    aes.Encrypt("pluto交", out3);
+    aes.Encrypt("pluto", out3);
     aes.Decrypt(out3, out4);
 
     std::stringstream in2, out2, out22;
@@ -67,7 +67,7 @@ TEST_CASE("AES_CBC_IV") {
 TEST_CASE("AES_CBC") {
     std::string out3, out4;
     Crypto::BlockCipher<Crypto::AES, Crypto::CBC> aes("pipopipopipopipopipopipopipopipo");
-    aes.Encrypt("pluto交", out3);
+    aes.Encrypt("pluto", out3);
     aes.Decrypt(out3, out4);
 
     std::stringstream in2, out2, out22;
@@ -82,7 +82,7 @@ TEST_CASE("AES_CBC") {
 TEST_CASE("AES_CFB_IV") {
     std::string out3, out4;
     Crypto::BlockCipher<Crypto::AES, Crypto::CFB> aes("pipopipopipopipopipopipopipopipo", "0000000000000000");
-    aes.Encrypt("pluto交", out3);
+    aes.Encrypt("pluto", out3);
     aes.Decrypt(out3, out4);
 
     std::stringstream in2, out2, out22;
@@ -98,7 +98,7 @@ TEST_CASE("AES_CFB_IV") {
 TEST_CASE("AES_CFB") {
     std::string out3, out4;
     Crypto::BlockCipher<Crypto::AES, Crypto::CFB> aes("pipopipopipopipopipopipopipopipo");
-    aes.Encrypt("pluto交", out3);
+    aes.Encrypt("pluto", out3);
     aes.Decrypt(out3, out4);
 
     std::stringstream in2, out2, out22;
@@ -108,4 +108,28 @@ TEST_CASE("AES_CFB") {
     std::string result = out22.str();
 
     REQUIRE(out4 == result);
+}
+
+
+TEST_CASE("AES_CFB_FILE") {
+    Crypto::BlockCipher<Crypto::AES, Crypto::CFB> aes("pipopipopipopipopipopipopipopipo");
+
+    std::fstream temp;
+    temp.open("test.bin", std::ios::out | std::ios::binary);
+    REQUIRE(temp.is_open());
+
+    std::stringstream in, out;
+    in << "sample string 1" << std::endl;
+    in << "sample string 2" << std::endl;
+    in << "sample string 3" << std::endl;
+    in << "sample string 4" << std::endl;
+    aes.Encrypt(in, temp);
+    temp.close();
+
+    temp.open("test.bin", std::ios::in | std::ios::binary);
+    aes.Decrypt(temp, out);
+
+    std::string result = out.str();
+
+    REQUIRE(result != "");
 }
