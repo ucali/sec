@@ -16,6 +16,7 @@
 #include <Cryptopp/base64.h>
 #include <Cryptopp/osrng.h>
 #include <Cryptopp/files.h>
+#include <cryptopp/gcm.h>
 
 namespace Crypto {
 
@@ -54,7 +55,7 @@ public:
     RSA() {
         CryptoPP::AutoSeededRandomPool rng;
         CryptoPP::InvertibleRSAFunction params;
-        params.GenerateRandomWithKeySize(rng, 3072);
+        params.GenerateRandomWithKeySize(rng, 1024);
 
         privateKey = CryptoPP::RSA::PrivateKey(params);
         publicKey = CryptoPP::RSA::PublicKey(params);
@@ -66,7 +67,7 @@ public:
 
     void Encrypt(const std::string& in, std::string& out) {
         CryptoPP::AutoSeededRandomPool rng;
-        CryptoPP::RSAES<CryptoPP::OAEP<CryptoPP::SHA>>::Encryptor enc(publicKey);
+        CryptoPP::RSAES<CryptoPP::OAEP<CryptoPP::SHA256>>::Encryptor enc(publicKey);
 
         CryptoPP::StringSource ss1(in, true,
             new CryptoPP::PK_EncryptorFilter(rng, enc,
@@ -77,7 +78,7 @@ public:
 
     void Decrypt(const std::string& in, std::string& out) {
         CryptoPP::AutoSeededRandomPool rng;
-        CryptoPP::RSAES<CryptoPP::OAEP<CryptoPP::SHA>>::Decryptor dec(privateKey);
+        CryptoPP::RSAES<CryptoPP::OAEP<CryptoPP::SHA256>>::Decryptor dec(privateKey);
 
         CryptoPP::StringSource ss2(in, true,
             new CryptoPP::PK_DecryptorFilter(rng, dec,
@@ -103,9 +104,14 @@ typedef CryptoPP::CBC_Mode_ExternalCipher CBC;
 typedef CryptoPP::CFB_Mode_ExternalCipher CFB;
 typedef CryptoPP::Salsa20 Salsa;
 
+template <typename A>
+using GCM = CryptoPP::GCM<A>;
+
 template <typename T, size_t L>
 class Cipher {
 public:
+    //TOD: key size, iv size
+
     Cipher(const std::string& key) : _iv(RandomIV<T, L>()) {
         _key.Assign(reinterpret_cast<const byte*>(key.c_str()), key.size());
     }
@@ -183,7 +189,6 @@ struct decryption_traits<AES, CBC> {
     typedef CBC::Decryption ModDecriptor;
 };
 
-
 template <typename T, typename V>
 class BlockCipher : public Cipher<T, T::BLOCKSIZE> {
 public:
@@ -234,6 +239,43 @@ private:
     CryptoPP::SecByteBlock _key;
 };
 
+
+template <typename T, typename V>
+class AuthBlockCipher : public Cipher<T, 12> {
+public:
+    AuthBlockCipher(const std::string& key) : Cipher<T, 12>(key) {}
+    AuthBlockCipher(const std::string& key, const std::string& iv) : Cipher<T, T::BLOCKSIZE>(key, iv) {}
+
+    void Encrypt(const std::string& plain, std::string& cipher) {
+        V::Encryption e;
+        e.SetKeyWithIV(key(), keySize(), iv(), 12);
+
+        CryptoPP::StringSource ss(plain, true,
+            new CryptoPP::AuthenticatedEncryptionFilter( e,
+                new CryptoPP::StringSink(cipher)//, false, 12 /*TAG_SIZE*/
+            )
+        );
+    }
+
+    void Decrypt(const std::string& cipher, std::string& plain) {
+        V::Decryption d;
+        d.SetKeyWithIV(key(), keySize(), iv(), 12);
+        CryptoPP::AuthenticatedDecryptionFilter df( d,
+           new CryptoPP::StringSink(plain)
+            //,CryptoPP::AuthenticatedDecryptionFilter::DEFAULT_FLAGS, 12
+        );
+
+        CryptoPP::StringSource ss2(cipher, true,
+           new CryptoPP::Redirector(df /*, PASS_EVERYTHING */ )
+        );
+
+        //if( true == df.GetLastResult() ) {
+        //   cout << "recovered text: " << rpdata << endl;
+        //}
+    }
+
+};
+
 template <typename T>
 class Hash {
 public:
@@ -246,10 +288,10 @@ public:
         out = std::move(std::string(reinterpret_cast<char*>(_hash.data()), T::DIGESTSIZE));
     }
 
-    void Digest(std::istream* const i, std::ostream* const o) {
-        CryptoPP::FileSource(*i, true,
+    void Digest(std::istream& i, std::string& o) {
+        CryptoPP::FileSource(i, true,
             new CryptoPP::HashFilter(engine,
-                new CryptoPP::FileSink(*o)
+                new CryptoPP::StringSink(o)
             )
          );
     }
